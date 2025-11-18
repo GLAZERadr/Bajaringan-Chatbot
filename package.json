@@ -6,21 +6,32 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "migrate": "tsx database/migrate.ts",
+    "update-dimension": "tsx database/update-dimension.ts",
+    "index": "tsx scripts/index.ts",
+    "reindex": "tsx scripts/reindex.ts"
   },
   "dependencies": {
+    "dotenv": "^17.2.3",
+    "mammoth": "^1.6.0",
     "next": "16.0.3",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.11.3",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.4",
+    "@types/pg": "^8.10.9",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.3",
     "tailwindcss": "^4",
+    "tsx": "^4.7.0",
     "typescript": "^5"
   }
 }
