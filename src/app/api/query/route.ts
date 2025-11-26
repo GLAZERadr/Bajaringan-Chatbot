@@ -179,17 +179,23 @@ async function handleStreamingResponse(
 
         // Stream answer
         let fullAnswer = '';
+        console.log('📝 Starting to stream answer from Gemini...');
         const generator = llm.generateRAGAnswerStream({
           query,
           chunks: searchResults
         });
 
+        let chunkCount = 0;
         for await (const chunk of generator) {
+          chunkCount++;
           fullAnswer += chunk;
+          console.log(`  📦 Chunk ${chunkCount}: ${chunk.substring(0, 50)}...`);
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`)
           );
         }
+
+        console.log(`✅ Streaming complete. Total chunks: ${chunkCount}, Total length: ${fullAnswer.length}`);
 
         // Send done signal
         const latency = Date.now() - startTime;

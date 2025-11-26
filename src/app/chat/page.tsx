@@ -149,7 +149,7 @@ export default function ChatPage() {
               >
                 <div className="flex items-start justify-between mb-1">
                   <span className="text-xs font-semibold uppercase tracking-wide opacity-70">
-                    {message.role === 'user' ? 'You' : 'Assistant'}
+                    {message.role === 'user' ? 'Kamu' : 'Asisten AI Bajaringan'}
                   </span>
                   <span className="text-xs opacity-60 ml-4">
                     {formatTime(message.timestamp)}

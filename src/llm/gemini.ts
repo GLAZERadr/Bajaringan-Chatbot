@@ -22,6 +22,12 @@ export interface Citation {
   page?: number;
 }
 
+export interface ImageInput {
+  data: Buffer;
+  mimeType: string;
+  filename: string;
+}
+
 export class GeminiLLM {
   private apiKey: string;
   private model: string = 'gemini-2.5-flash'; // Use -latest suffix for v1beta
@@ -46,45 +52,49 @@ export class GeminiLLM {
   private buildRAGPrompt(query: string, chunks: SearchResult[]): string {
     const contextBlocks = chunks.map((chunk, idx) => {
       const metadata = chunk.metadata || {};
-      const page = metadata.page ? ` (Page ${metadata.page})` : '';
+      const page = metadata.page ? ` (Halaman ${metadata.page})` : '';
 
-      return `[Source ${idx + 1}]: ${chunk.document_filename}${page}
+      return `[Sumber ${idx + 1}]: ${chunk.document_filename}${page}
 ${chunk.content}
 ---`;
     }).join('\n\n');
 
-    return `You are an Bajaringan AI assistant specialized in answering questions based on a knowledge base of baja ringan.
+    return `Anda adalah asisten konstruksi baja ringan yang berpengalaman dan ramah. Anda seperti teman atau konsultan yang membantu pengguna memahami dan mengatasi masalah konstruksi mereka.
 
-YOUR ROLE AND CAPABILITIES:
-- You help users find information from documents that have been uploaded to the knowledge base
-- You can only answer questions related to the content in these documents
-- You provide accurate answers with citations to the source documents
-- You are focused on document-based question answering using RAG (Retrieval Augmented Generation)
+KARAKTER ANDA:
+- Berbicara natural seperti manusia, bukan robot
+- Gunakan "Saya" bukan "AI" atau "sistem"
+- Empati dan memahami kekhawatiran pengguna
+- Berikan solusi praktis, bukan hanya teori
+- Jujur jika tidak yakin atau perlu info lebih lanjut
+- Gunakan analogi atau contoh untuk penjelasan kompleks
 
-IMPORTANT INSTRUCTIONS:
-1. PRIORITIZE using information from the context sources below when available
-2. If the context sources contain relevant information:
-   - Use that information as your primary answer
-   - CRITICAL: Cite sources naturally within your answer using ONLY the format [N] where N is the source number (e.g., [1], [2], [3])
-   - Place citations immediately after the information they support
-   - DO NOT use phrases like "Document 1", "Document 2" - ONLY use [1], [2], etc.
-   - Example: "Baja ringan adalah Cold Formed Steel [1] yang digunakan untuk konstruksi gedung [2]."
-3. If the question is PARTIALLY covered by context:
-   - Provide information from context with citations [N]
-   - Then add: "Untuk informasi tambahan yang tidak tersedia dalam dokumen, berikut penjelasan umum: [provide general knowledge]"
-4. If the question is COMPLETELY outside the scope of provided documents:
-   - First acknowledge: "Informasi ini tidak tersedia dalam dokumen yang diupload."
-   - Then provide helpful general knowledge answer using your built-in knowledge
-   - End with: "💡 Tip: Untuk jawaban yang lebih spesifik dan akurat, silakan upload dokumen terkait ke knowledge base."
-5. Be concise but comprehensive
-6. Always prioritize document knowledge over general knowledge when available
+GAYA BAHASA:
+✅ BAGUS: "Wah, saya lihat masalahnya nih. Kebocoran atap seperti ini biasanya disebabkan oleh..."
+❌ JELEK: "Berdasarkan data yang tersedia, kebocoran atap disebabkan oleh..."
 
-CONTEXT SOURCES:
+✅ BAGUS: "Tenang, masalah ini masih bisa diatasi kok. Yang perlu Anda lakukan adalah..."
+❌ JELEK: "Sistem merekomendasikan langkah-langkah berikut untuk mengatasi masalah..."
+
+SUMBER INFORMASI:
 ${contextBlocks}
 
-USER QUESTION: ${query}
+PERTANYAAN: ${query}
 
-ANSWER (with [N] citations):`;
+INSTRUKSI PENTING:
+1. Baca semua sumber dengan teliti
+2. Prioritaskan informasi dari sumber yang relevan
+3. Cite sumber dengan format [1], [2], [3] setelah informasi yang diambil dari sumber tersebut
+   Contoh: "Baja ringan menggunakan teknologi Cold Formed Steel [1] yang lebih kuat dari kayu [2]."
+4. Jangan tulis "Sumber 1" atau "Dokumen 1", hanya [1]
+5. Jika sumber tidak cukup lengkap:
+   - Gunakan informasi dari sumber dulu
+   - Tambahkan pengetahuan umum Anda dengan jelas menyebutkan:
+     "Berdasarkan pengalaman umum di lapangan, ..." atau "Secara umum, ..."
+6. Akhiri dengan pertanyaan atau tawaran bantuan lebih lanjut jika relevan
+   Contoh: "Apakah ada bagian lain yang ingin saya jelaskan lebih detail?"
+
+JAWABAN NATURAL:`;
   }
 
   /**
@@ -176,12 +186,12 @@ ANSWER (with [N] citations):`;
         const answer = data.candidates?.[0]?.content?.parts?.[0]?.text ||
                        'Sorry, I could not generate an answer.';
 
-        // Extract citations from chunks
+        // Extract citations from chunks with full content
         const citations: Citation[] = chunks.map((chunk, idx) => ({
           document_id: chunk.document_id,
           document_name: chunk.document_filename || 'Unknown',
           chunk_index: chunk.chunk_index,
-          content: chunk.content.substring(0, 200) + '...',
+          content: chunk.content, // Full content for modal display
           page: chunk.metadata?.page
         }));
 
@@ -269,25 +279,70 @@ ANSWER (with [N] citations):`;
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
+      console.log('🔄 Starting to read Gemini stream...');
+      let buffer = '';
+      let processedUpTo = 0;
+
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim());
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
 
-        for (const line of lines) {
-          try {
-            const json = JSON.parse(line);
-            const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) {
-              yield text;
-            }
-          } catch (e) {
-            // Skip invalid JSON lines
+        if (done) {
+          console.log('✅ Gemini stream reading complete, buffer length:', buffer.length);
+          break;
+        }
+
+        // Try to parse accumulated buffer as JSON array and process new objects
+        // Gemini streaming format: [{"candidates":[...]}, {"candidates":[...]}, ...]
+        try {
+          // Try to parse what we have so far
+          let parseBuffer = buffer.trim();
+
+          // If buffer doesn't end with ], add it temporarily for parsing
+          if (!parseBuffer.endsWith(']')) {
+            parseBuffer = parseBuffer.replace(/,\s*$/, '') + ']';
           }
+
+          const jsonArray = JSON.parse(parseBuffer);
+
+          if (Array.isArray(jsonArray)) {
+            // Process only new objects (from processedUpTo index onwards)
+            for (let i = processedUpTo; i < jsonArray.length; i++) {
+              const obj = jsonArray[i];
+              const text = obj.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) {
+                console.log(`  ✅ Yielding chunk ${i + 1}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+                yield text;
+                processedUpTo = i + 1;
+              }
+            }
+          }
+        } catch (e) {
+          // Not enough data yet to parse, continue accumulating
         }
       }
+
+      // Final parse to catch any remaining text
+      try {
+        const jsonArray = JSON.parse(buffer.trim());
+        if (Array.isArray(jsonArray)) {
+          for (let i = processedUpTo; i < jsonArray.length; i++) {
+            const obj = jsonArray[i];
+            const text = obj.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+              console.log(`  ✅ Final yield chunk ${i + 1}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+              yield text;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('  ❌ Failed to parse final buffer:', e);
+      }
+
+      console.log(`🏁 Gemini streaming finished, processed ${processedUpTo} chunks`);
     } catch (error) {
       console.error('❌ Gemini streaming error:', error);
       throw error;
@@ -327,6 +382,186 @@ ANSWER (with [N] citations):`;
       return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response';
     } catch (error) {
       console.error('❌ Gemini completion error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Analyze image with vision model
+   */
+  async analyzeImage(
+    image: ImageInput,
+    prompt: string = "Describe this image in detail, especially any issues or damage you see."
+  ): Promise<string> {
+    try {
+      const base64Image = image.data.toString('base64');
+
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              {
+                inline_data: {
+                  mime_type: image.mimeType,
+                  data: base64Image
+                }
+              }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.4,
+            topK: 32,
+            topP: 0.95,
+            maxOutputTokens: 2048,
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Vision API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text ||
+             'Tidak dapat menganalisis gambar.';
+    } catch (error) {
+      console.error('❌ Image analysis error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Analyze multiple images (for comparison or batch analysis)
+   */
+  async analyzeImages(
+    images: ImageInput[],
+    prompt: string = "Analisis gambar-gambar ini dan jelaskan masalah yang terlihat."
+  ): Promise<string> {
+    try {
+      const imageParts = images.map(img => ({
+        inline_data: {
+          mime_type: img.mimeType,
+          data: img.data.toString('base64')
+        }
+      }));
+
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              ...imageParts
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 3072,
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Vision API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text ||
+             'Tidak dapat menganalisis gambar.';
+    } catch (error) {
+      console.error('❌ Batch image analysis error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Multimodal RAG - Query with both text and images
+   */
+  async generateMultimodalRAGAnswer(
+    query: string,
+    images: ImageInput[],
+    chunks: SearchResult[]
+  ): Promise<RAGResponse> {
+    try {
+      // First, analyze images
+      const imageAnalysis = await this.analyzeImages(
+        images,
+        `Analisis gambar konstruksi baja ringan ini. Identifikasi masalah, kerusakan, atau kondisi yang terlihat.`
+      );
+
+      // Build context from both images and documents
+      const contextBlocks = chunks.map((chunk, idx) => {
+        const page = chunk.metadata?.page ? ` (Halaman ${chunk.metadata.page})` : '';
+        return `[Sumber ${idx + 1}]: ${chunk.document_filename}${page}
+${chunk.content}
+---`;
+      }).join('\n\n');
+
+      const prompt = `Anda adalah asisten ahli konstruksi baja ringan yang membantu pengguna dengan ramah dan natural.
+
+ANALISIS GAMBAR:
+${imageAnalysis}
+
+KONTEKS DARI DOKUMEN:
+${contextBlocks}
+
+PERTANYAAN PENGGUNA: ${query}
+
+INSTRUKSI PENTING:
+1. Jawab dengan bahasa yang natural, ramah, dan seperti berbicara dengan teman
+2. Gunakan "Saya", bukan "AI" atau "sistem"
+3. Kombinasikan informasi dari gambar dan dokumen
+4. Berikan saran praktis dan solusi konkret
+5. Cantumkan sumber dengan format [1], [2], dll
+6. Jika gambar menunjukkan masalah serius, tekankan pentingnya tindakan
+
+JAWABAN (natural dan helpful):`;
+
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: prompt }]
+          }],
+          generationConfig: {
+            temperature: 0.7, // Higher for more natural language
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 2048,
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Multimodal RAG error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const answer = data.candidates?.[0]?.content?.parts?.[0]?.text ||
+                     'Maaf, saya kesulitan menganalisis informasi ini.';
+
+      const citations: Citation[] = chunks.map((chunk, idx) => ({
+        document_id: chunk.document_id,
+        document_name: chunk.document_filename || 'Unknown',
+        chunk_index: chunk.chunk_index,
+        content: chunk.content, // Full content for modal
+        page: chunk.metadata?.page
+      }));
+
+      return { answer, citations };
+    } catch (error) {
+      console.error('❌ Multimodal RAG error:', error);
       throw error;
     }
   }

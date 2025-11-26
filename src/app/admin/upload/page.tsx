@@ -28,6 +28,13 @@ export default function AdminUploadPage() {
   const [loading, setLoading] = useState(false);
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
 
+  // Image upload state
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imageCategory, setImageCategory] = useState('');
+  const [imageDescription, setImageDescription] = useState('');
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [imageMessage, setImageMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   useEffect(() => {
     loadDocuments();
   }, []);
@@ -152,6 +159,68 @@ export default function AdminUploadPage() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      setImageFiles(prev => [...prev, ...files]);
+      setImageMessage(null);
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleImageUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (imageFiles.length === 0) {
+      setImageMessage({ type: 'error', text: 'Please select at least one image' });
+      return;
+    }
+
+    if (!imageCategory.trim()) {
+      setImageMessage({ type: 'error', text: 'Please enter a category name' });
+      return;
+    }
+
+    setUploadingImages(true);
+    setImageMessage(null);
+
+    try {
+      const formData = new FormData();
+      imageFiles.forEach(file => formData.append('images', file));
+      formData.append('category', imageCategory);
+      formData.append('description', imageDescription);
+
+      const response = await fetch('/api/upload-images', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setImageMessage({
+          type: 'success',
+          text: data.message || `Successfully uploaded ${imageFiles.length} images`
+        });
+        setImageFiles([]);
+        setImageCategory('');
+        setImageDescription('');
+
+        // Reload documents
+        await loadDocuments();
+      } else {
+        setImageMessage({ type: 'error', text: data.error || 'Upload failed' });
+      }
+    } catch (error) {
+      setImageMessage({ type: 'error', text: 'Upload failed. Please try again.' });
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-6xl mx-auto">
@@ -241,6 +310,118 @@ export default function AdminUploadPage() {
               }`}
             >
               {message.text}
+            </div>
+          )}
+        </div>
+
+        {/* Image Upload Form */}
+        <div className="bg-white p-6 rounded-lg shadow mb-8">
+          <h2 className="text-xl font-semibold mb-4">Upload Images (Bulk Training)</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Upload multiple images grouped by category/case for AI training. Example: "kebocoran atap yang harus diganti", "rangka baja berkarat", etc.
+          </p>
+
+          <form onSubmit={handleImageUpload} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Category / Case Name *
+                </label>
+                <input
+                  type="text"
+                  value={imageCategory}
+                  onChange={(e) => setImageCategory(e.target.value)}
+                  placeholder="e.g., kebocoran atap yang harus diganti"
+                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={uploadingImages}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={imageDescription}
+                  onChange={(e) => setImageDescription(e.target.value)}
+                  placeholder="Additional context about these images"
+                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={uploadingImages}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Images (JPG, PNG, WebP) *
+              </label>
+              <input
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                multiple
+                onChange={handleImageSelect}
+                className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none"
+                disabled={uploadingImages}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Max 20 images per upload, 10MB per image
+              </p>
+            </div>
+
+            {imageFiles.length > 0 && (
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-medium text-gray-700">
+                    {imageFiles.length} image(s) selected
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setImageFiles([])}
+                    className="text-xs text-red-600 hover:text-red-800 font-medium"
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                  {imageFiles.map((image, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={URL.createObjectURL(image)}
+                        alt={`Preview ${index + 1}`}
+                        className="w-full h-20 object-cover rounded border border-gray-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(index)}
+                        className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold hover:bg-red-600"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={imageFiles.length === 0 || !imageCategory.trim() || uploadingImages}
+              className="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+            >
+              {uploadingImages ? 'Processing Images...' : `Upload & Index ${imageFiles.length} Image(s)`}
+            </button>
+          </form>
+
+          {imageMessage && (
+            <div
+              className={`mt-4 p-4 rounded-lg ${
+                imageMessage.type === 'success'
+                  ? 'bg-green-50 text-green-800 border border-green-200'
+                  : 'bg-red-50 text-red-800 border border-red-200'
+              }`}
+            >
+              {imageMessage.text}
             </div>
           )}
         </div>

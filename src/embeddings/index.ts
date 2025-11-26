@@ -146,32 +146,58 @@ export function getEmbeddingProvider(): EmbeddingProvider {
 }
 
 /**
- * Batch embeddings with retry logic
+ * Batch embeddings with concurrent processing and retry logic
  */
 export async function embedBatch(
   texts: string[],
   provider?: EmbeddingProvider,
-  batchSize: number = 10
+  batchSize: number = 10,
+  maxConcurrency: number = 5
 ): Promise<number[][]> {
   const embedder = provider || getEmbeddingProvider();
+
+  // Split into batches
+  const batches: string[][] = [];
+  for (let i = 0; i < texts.length; i += batchSize) {
+    batches.push(texts.slice(i, i + batchSize));
+  }
+
+  console.log(`🔮 Embedding ${texts.length} texts in ${batches.length} batches (${maxConcurrency} concurrent)`);
+
   const results: number[][] = [];
 
-  for (let i = 0; i < texts.length; i += batchSize) {
-    const batch = texts.slice(i, i + batchSize);
+  // Process batches with concurrency limit
+  for (let i = 0; i < batches.length; i += maxConcurrency) {
+    const concurrentBatches = batches.slice(i, i + maxConcurrency);
+
+    console.log(`  ⚡ Processing batches ${i + 1}-${Math.min(i + maxConcurrency, batches.length)} of ${batches.length}`);
 
     try {
-      const embeddings = await embedder.embedDocuments(batch);
-      results.push(...embeddings);
+      const batchResults = await Promise.all(
+        concurrentBatches.map(async (batch, idx) => {
+          try {
+            const embeddings = await embedder.embedDocuments(batch);
+            console.log(`    ✅ Batch ${i + idx + 1} complete (${batch.length} items)`);
+            return embeddings;
+          } catch (error) {
+            console.error(`    ❌ Batch ${i + idx + 1} failed:`, error);
+            throw error;
+          }
+        })
+      );
 
-      // Small delay to avoid rate limits
-      if (i + batchSize < texts.length) {
+      results.push(...batchResults.flat());
+
+      // Small delay to respect rate limits between concurrent groups
+      if (i + maxConcurrency < batches.length) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     } catch (error) {
-      console.error(`❌ Failed to embed batch ${i}-${i + batch.length}:`, error);
+      console.error(`❌ Failed to embed concurrent batches ${i}-${i + concurrentBatches.length}:`, error);
       throw error;
     }
   }
 
+  console.log(`✅ All embeddings generated: ${results.length}`);
   return results;
 }
