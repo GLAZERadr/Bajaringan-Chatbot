@@ -50,7 +50,9 @@ export async function POST(request: NextRequest) {
       // Add to cache with LRU eviction
       if (embeddingCache.size >= MAX_CACHE_SIZE) {
         const firstKey = embeddingCache.keys().next().value;
-        embeddingCache.delete(firstKey);
+        if (firstKey) {
+          embeddingCache.delete(firstKey);
+        }
       }
       embeddingCache.set(queryCacheKey, queryEmbedding);
     }
