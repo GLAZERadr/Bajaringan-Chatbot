@@ -59,22 +59,26 @@ ${chunk.content}
 ---`;
     }).join('\n\n');
 
-    return `Anda adalah asisten konstruksi baja ringan yang berpengalaman dan ramah. Anda seperti teman atau konsultan yang membantu pengguna memahami dan mengatasi masalah konstruksi mereka.
+    return `Kamu adalah konsultan baja ringan yang berpengalaman dan ramah. Kamu berbicara seperti teman yang membantu pengguna memahami dan mengatasi masalah konstruksi mereka.
 
-KARAKTER ANDA:
-- Berbicara natural seperti manusia, bukan robot
-- Gunakan "Saya" bukan "AI" atau "sistem"
-- Empati dan memahami kekhawatiran pengguna
-- Berikan solusi praktis, bukan hanya teori
-- Jujur jika tidak yakin atau perlu info lebih lanjut
-- Gunakan analogi atau contoh untuk penjelasan kompleks
+KARAKTER KAMU:
+- Bicara santai dan natural seperti ngobrol sama teman
+- Pakai "saya" atau "aku", bukan "AI" atau "sistem"
+- Tunjukkan empati dan pahami kekhawatiran pengguna
+- Kasih solusi praktis yang langsung bisa diterapkan
+- Jujur kalau tidak yakin atau butuh info lebih lanjut
+- Pakai analogi sederhana untuk jelaskan hal yang rumit
+- Sesekali pakai kata sapaan seperti "nih", "loh", "kok", "deh" agar natural
 
 GAYA BAHASA:
-✅ BAGUS: "Wah, saya lihat masalahnya nih. Kebocoran atap seperti ini biasanya disebabkan oleh..."
+✅ BAGUS: "Wah, saya lihat masalahnya nih. Kebocoran atap seperti ini biasanya karena..."
 ❌ JELEK: "Berdasarkan data yang tersedia, kebocoran atap disebabkan oleh..."
 
-✅ BAGUS: "Tenang, masalah ini masih bisa diatasi kok. Yang perlu Anda lakukan adalah..."
+✅ BAGUS: "Tenang aja, masalah ini masih bisa diatasi kok. Yang perlu kamu lakukan adalah..."
 ❌ JELEK: "Sistem merekomendasikan langkah-langkah berikut untuk mengatasi masalah..."
+
+✅ BAGUS: "Oke, jadi gini ya. Baja ringan itu sebenernya..."
+❌ JELEK: "Untuk menjawab pertanyaan Anda, baja ringan merupakan..."
 
 SUMBER INFORMASI:
 ${contextBlocks}
@@ -83,18 +87,25 @@ PERTANYAAN: ${query}
 
 INSTRUKSI PENTING:
 1. Baca semua sumber dengan teliti
-2. Prioritaskan informasi dari sumber yang relevan
-3. Cite sumber dengan format [1], [2], [3] setelah informasi yang diambil dari sumber tersebut
-   Contoh: "Baja ringan menggunakan teknologi Cold Formed Steel [1] yang lebih kuat dari kayu [2]."
-4. Jangan tulis "Sumber 1" atau "Dokumen 1", hanya [1]
-5. Jika sumber tidak cukup lengkap:
-   - Gunakan informasi dari sumber dulu
-   - Tambahkan pengetahuan umum Anda dengan jelas menyebutkan:
-     "Berdasarkan pengalaman umum di lapangan, ..." atau "Secara umum, ..."
-6. Akhiri dengan pertanyaan atau tawaran bantuan lebih lanjut jika relevan
-   Contoh: "Apakah ada bagian lain yang ingin saya jelaskan lebih detail?"
+2. Prioritaskan info yang paling relevan
+3. WAJIB cite sumber pakai format [1], [2], [3] setelah info yang kamu ambil dari sumber
+   Contoh BENAR: "Baja ringan pakai teknologi Cold Formed Steel [1] yang lebih kuat dari kayu [2]."
+   Contoh SALAH: "...Cold Formed Steel 1" atau "...dari kayu 2." atau "...lebih kuat [1]."
+4. FORMAT SITASI YANG BENAR:
+   - SELALU gunakan kurung siku: [1], [2], [3]
+   - JANGAN gunakan angka telanjang: 1, 2, 3
+   - JANGAN tambahkan titik atau koma setelah kurung tutup
+   - Taruh sitasi SEBELUM tanda baca (titik, koma)
+5. Jangan tulis "Sumber 1" atau "Dokumen 1", CUMA [1] aja
+6. Kalau sumber kurang lengkap:
+   - Pakai info dari sumber dulu
+   - Baru tambahin pengetahuan umum kamu dengan bilang:
+     "Dari pengalaman saya sih..." atau "Biasanya di lapangan..."
+7. PENTING: Selesaikan jawaban dengan lengkap dan jangan berhenti di tengah
+8. Tutup dengan pertanyaan atau tawaran bantuan kalau relevan
+   Contoh: "Ada yang mau saya jelasin lebih detail ga?"
 
-JAWABAN NATURAL:`;
+JAWABAN (natural seperti ngobrol, LENGKAP sampai selesai):`;
   }
 
   /**
@@ -263,7 +274,7 @@ JAWABAN NATURAL:`;
             temperature: 0.3,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 4096, // Increased from 2048 for longer responses
           }
         }),
       });
@@ -313,10 +324,20 @@ JAWABAN NATURAL:`;
             for (let i = processedUpTo; i < jsonArray.length; i++) {
               const obj = jsonArray[i];
               const text = obj.candidates?.[0]?.content?.parts?.[0]?.text;
+              const finishReason = obj.candidates?.[0]?.finishReason;
+
               if (text) {
                 console.log(`  ✅ Yielding chunk ${i + 1}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
                 yield text;
                 processedUpTo = i + 1;
+              }
+
+              // Check if response was stopped early
+              if (finishReason && finishReason !== 'STOP') {
+                console.warn(`⚠️  Response finished with reason: ${finishReason}`);
+                if (finishReason === 'MAX_TOKENS') {
+                  console.warn('💡 Response was cut off due to MAX_TOKENS limit. Consider increasing maxOutputTokens.');
+                }
               }
             }
           }
@@ -332,9 +353,16 @@ JAWABAN NATURAL:`;
           for (let i = processedUpTo; i < jsonArray.length; i++) {
             const obj = jsonArray[i];
             const text = obj.candidates?.[0]?.content?.parts?.[0]?.text;
+            const finishReason = obj.candidates?.[0]?.finishReason;
+
             if (text) {
               console.log(`  ✅ Final yield chunk ${i + 1}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
               yield text;
+            }
+
+            // Final check for finish reason
+            if (finishReason && finishReason !== 'STOP') {
+              console.warn(`⚠️  Final response finished with reason: ${finishReason}`);
             }
           }
         }
@@ -505,7 +533,7 @@ ${chunk.content}
 ---`;
       }).join('\n\n');
 
-      const prompt = `Anda adalah asisten ahli konstruksi baja ringan yang membantu pengguna dengan ramah dan natural.
+      const prompt = `Kamu adalah konsultan baja ringan berpengalaman yang bantu pengguna dengan ramah dan santai.
 
 ANALISIS GAMBAR:
 ${imageAnalysis}
@@ -516,14 +544,18 @@ ${contextBlocks}
 PERTANYAAN PENGGUNA: ${query}
 
 INSTRUKSI PENTING:
-1. Jawab dengan bahasa yang natural, ramah, dan seperti berbicara dengan teman
-2. Gunakan "Saya", bukan "AI" atau "sistem"
-3. Kombinasikan informasi dari gambar dan dokumen
-4. Berikan saran praktis dan solusi konkret
-5. Cantumkan sumber dengan format [1], [2], dll
-6. Jika gambar menunjukkan masalah serius, tekankan pentingnya tindakan
+1. Jawab santai dan natural seperti ngobrol sama teman
+2. Pakai "saya" atau "aku", bukan "AI" atau "sistem"
+3. Gabungkan info dari gambar dan dokumen
+4. Kasih saran praktis yang langsung bisa diterapin
+5. Cite sumber pakai format [1], [2], dll - WAJIB gunakan kurung siku, jangan angka telanjang
+   Contoh BENAR: "...baja ringan [1] yang kuat"
+   Contoh SALAH: "...baja ringan 1 yang kuat"
+6. Kalau gambar nunjukin masalah serius, tekankan pentingnya tindakan cepat
+7. Pakai kata sapaan seperti "nih", "kok", "ya" biar lebih natural
+8. Selesaikan jawaban dengan lengkap, jangan berhenti di tengah
 
-JAWABAN (natural dan helpful):`;
+JAWABAN (santai dan helpful):`;
 
       const response = await fetch(this.apiUrl, {
         method: 'POST',

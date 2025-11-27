@@ -11,6 +11,7 @@ interface Message {
   content: string;
   citations?: Citation[];
   timestamp: number;
+  images?: string[]; // base64 encoded images
 }
 
 interface Citation {
@@ -38,6 +39,14 @@ export default function Home() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
+
+  // Debug logging for selectedImages state
+  useEffect(() => {
+    console.log('🔄 selectedImages state changed:', selectedImages.length, 'images');
+    selectedImages.forEach((img, idx) => {
+      console.log(`  📷 Image ${idx + 1}:`, img.name, img.type, img.size);
+    });
+  }, [selectedImages]);
   const [selectedCitation, setSelectedCitation] = useState<{
     citation: Citation;
     index: number;
@@ -201,11 +210,41 @@ export default function Home() {
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
+    console.log('📸 handleImageSelect triggered');
+    console.log('📸 Event:', e);
+    console.log('📸 Event target:', e.target);
+    console.log('📸 Event target files:', e.target.files);
+
+    if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files);
-      const imageFiles = files.filter(file => file.type.startsWith('image/'));
-      setSelectedImages(prev => [...prev, ...imageFiles]);
-      setShowImageMenu(false);
+      console.log('📁 Files selected:', files.length);
+      console.log('📁 Files details:', files.map(f => ({ name: f.name, type: f.type, size: f.size })));
+
+      const imageFiles = files.filter(file => {
+        const isImage = file.type.startsWith('image/');
+        console.log(`🔍 File "${file.name}" type "${file.type}" - is image: ${isImage}`);
+        return isImage;
+      });
+      console.log('🖼️ Image files filtered:', imageFiles.length, imageFiles.map(f => f.name));
+
+      if (imageFiles.length > 0) {
+        console.log('✅ About to update state with:', imageFiles);
+        setSelectedImages(prev => {
+          console.log('🔄 Current selectedImages:', prev.length);
+          const updated = [...prev, ...imageFiles];
+          console.log('✅ Updated selectedImages array:', updated.length, updated.map(img => img.name));
+          return updated;
+        });
+      } else {
+        console.warn('⚠️ No valid image files found. All files were filtered out.');
+        console.warn('⚠️ Original files:', files.map(f => ({ name: f.name, type: f.type })));
+      }
+
+      // Reset input value to allow selecting the same file again
+      e.target.value = '';
+      console.log('🔄 Input value reset');
+    } else {
+      console.warn('⚠️ No files in event.target.files');
     }
   };
 
@@ -256,7 +295,7 @@ export default function Home() {
 
     const reader = response.body?.getReader();
     if (!reader) {
-      throw new Error('No response body');
+      throw new Error('Tidak ada response body');
     }
 
     const decoder = new TextDecoder();
@@ -315,7 +354,7 @@ export default function Home() {
                 console.error('❌ Stream error:', data.error);
                 setMessages(prev => prev.map((msg, idx) =>
                   idx === messageIndex
-                    ? { ...msg, content: `Error: ${data.error}` }
+                    ? { ...msg, content: `Kesalahan: ${data.error}` }
                     : msg
                 ));
               }
@@ -330,7 +369,7 @@ export default function Home() {
       console.error('Streaming error:', error);
       setMessages(prev => prev.map((msg, idx) =>
         idx === messageIndex
-          ? { ...msg, content: fullContent || 'Error: Connection interrupted' }
+          ? { ...msg, content: fullContent || 'Kesalahan: Koneksi terputus' }
           : msg
       ));
     }
@@ -346,7 +385,7 @@ export default function Home() {
       const newChatId = `chat_${Date.now()}`;
       const newChat: ChatHistory = {
         id: newChatId,
-        title: input.substring(0, 50) || '🖼️ Image query', // Use the first message as title
+        title: input.substring(0, 50) || '🖼️ Pertanyaan Gambar', // Use the first message as title
         messages: [],
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -359,10 +398,22 @@ export default function Home() {
       localStorage.setItem('currentChatId', newChatId);
     }
 
+    // Convert images to base64
+    const imageDataUrls: string[] = [];
+    for (const image of selectedImages) {
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(image);
+      });
+      imageDataUrls.push(dataUrl);
+    }
+
     const userMessage: Message = {
       role: 'user',
       content: input || (selectedImages.length > 0 ? `🖼️ [${selectedImages.length} gambar]` : ''),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      images: imageDataUrls.length > 0 ? imageDataUrls : undefined
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -378,7 +429,7 @@ export default function Home() {
         const formData = new FormData();
         selectedImages.forEach(img => formData.append('images', img));
         formData.append('query', input || 'Apa yang Anda lihat di gambar ini? Ada masalah apa?');
-        formData.append('k', '5');
+        formData.append('k', '3'); // Reduced for faster response
 
         response = await fetch('/api/analyze-image', {
           method: 'POST',
@@ -388,11 +439,11 @@ export default function Home() {
         // Clear images after sending
         setSelectedImages([]);
       } else {
-        // Regular text query with streaming
+        // Regular text query with streaming (reduced k for faster response)
         response = await fetch('/api/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: input, k: 5, stream: true }),
+          body: JSON.stringify({ query: input, k: 3, stream: true }),
         });
       }
 
@@ -454,17 +505,37 @@ export default function Home() {
   };
 
   const renderContentWithCitations = (content: string, citations: Citation[], messageIndex: number) => {
+    // Helper function to extract text from nested React children
+    const extractText = (node: any): string => {
+      if (typeof node === 'string') {
+        return node;
+      }
+      if (typeof node === 'number') {
+        return String(node);
+      }
+      if (Array.isArray(node)) {
+        return node.map(extractText).join('');
+      }
+      if (node && typeof node === 'object' && node.props && node.props.children) {
+        return extractText(node.props.children);
+      }
+      return '';
+    };
+
     // Custom component for rendering citations within markdown
     const components = {
       // Override text nodes to handle citations
       p: ({ children, ...props }: any) => {
         // Convert children to string and check for citations
-        const text = React.Children.toArray(children).join('');
+        const text = extractText(children);
 
+        // Check for both [1] style citations and plain numbers after periods
         if (typeof text === 'string' && /\[\d+\]/.test(text)) {
+          // Split by [number] pattern, keeping the brackets
           const parts = text.split(/(\[\d+\])/g);
 
           const rendered = parts.map((part, partIndex) => {
+            // Match [1], [2], etc.
             const citationMatch = part.match(/^\[(\d+)\]$/);
 
             if (citationMatch) {
@@ -671,8 +742,8 @@ export default function Home() {
                 </svg>
               </button>
               <div className="min-w-0">
-                <h1 className="text-lg md:text-2xl font-bold text-gray-900 truncate">Bajaringan Chatbot</h1>
-                <p className="text-xs md:text-sm text-gray-600 hidden sm:block">Ask questions about your knowledge base</p>
+                <h1 className="text-lg md:text-2xl font-bold text-gray-900 truncate">Chatbot Bajaringan</h1>
+                <p className="text-xs md:text-sm text-gray-600 hidden sm:block">Tanyakan apa saja tentang knowledge base Anda</p>
               </div>
             </div>
             <Link
@@ -682,7 +753,7 @@ export default function Home() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              <span className="hidden sm:inline">Admin Panel</span>
+              <span className="hidden sm:inline">Panel Admin</span>
               <span className="sm:hidden">Admin</span>
             </Link>
           </div>
@@ -708,29 +779,29 @@ export default function Home() {
                   />
                 </svg>
               </div>
-              <h2 className="text-xl md:text-2xl font-bold text-gray-900 mb-2">
-                Selamat datang di Bajaringan Chatbot
+              <h2 className="text-xl md:text-2xl font-bold text-gray-900 mb-2 leading-tight">
+                Selamat Datang di Chatbot Bajaringan
               </h2>
-              <p className="text-sm md:text-base text-gray-600 mb-6 md:mb-8 max-w-2xl mx-auto">
-                Tanyakan apa saja tentang baja ringan, konstruksi, spesifikasi teknis, dan dokumen lainnya yang telah diupload ke knowledge base
+              <p className="text-sm md:text-base text-gray-600 mb-6 md:mb-8 max-w-2xl mx-auto leading-relaxed">
+                Tanyakan apa saja tentang baja ringan, konstruksi, spesifikasi teknis, dan dokumen lainnya yang telah diunggah ke knowledge base
               </p>
 
               {/* Example Questions */}
-              <div className="max-w-3xl mx-auto mb-6">
-                <p className="text-sm font-semibold text-gray-700 mb-4 text-left">Contoh pertanyaan yang bisa Anda tanyakan:</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="max-w-3xl mx-auto mb-4 md:mb-6">
+                <p className="text-xs md:text-sm font-semibold text-gray-700 mb-3 md:mb-4 text-left">Contoh pertanyaan yang bisa Anda tanyakan:</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
                   <button
                     onClick={() => setInput('Apa itu baja ringan?')}
-                    className="text-left p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all group"
+                    className="text-left p-3 md:p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all group active:scale-95"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="text-blue-600 group-hover:scale-110 transition-transform">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="flex items-start gap-2 md:gap-3">
+                      <div className="text-blue-600 group-hover:scale-110 transition-transform flex-shrink-0">
+                        <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                       </div>
-                      <div>
-                        <p className="font-medium text-gray-900 mb-1">Apa itu baja ringan?</p>
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 mb-0.5 md:mb-1 text-sm md:text-base">Apa itu baja ringan?</p>
                         <p className="text-xs text-gray-500">Penjelasan dasar tentang baja ringan</p>
                       </div>
                     </div>
@@ -738,16 +809,16 @@ export default function Home() {
 
                   <button
                     onClick={() => setInput('Apa saja aplikasi atau penggunaan baja ringan?')}
-                    className="text-left p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all group"
+                    className="text-left p-3 md:p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all group active:scale-95"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="text-green-600 group-hover:scale-110 transition-transform">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="flex items-start gap-2 md:gap-3">
+                      <div className="text-green-600 group-hover:scale-110 transition-transform flex-shrink-0">
+                        <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                         </svg>
                       </div>
-                      <div>
-                        <p className="font-medium text-gray-900 mb-1">Apa saja aplikasi baja ringan?</p>
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 mb-0.5 md:mb-1 text-sm md:text-base">Apa saja aplikasi baja ringan?</p>
                         <p className="text-xs text-gray-500">Penggunaan dalam konstruksi</p>
                       </div>
                     </div>
@@ -755,16 +826,16 @@ export default function Home() {
 
                   <button
                     onClick={() => setInput('Apa keunggulan baja ringan dibanding material lain?')}
-                    className="text-left p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all group"
+                    className="text-left p-3 md:p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all group active:scale-95"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="text-purple-600 group-hover:scale-110 transition-transform">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="flex items-start gap-2 md:gap-3">
+                      <div className="text-purple-600 group-hover:scale-110 transition-transform flex-shrink-0">
+                        <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                         </svg>
                       </div>
-                      <div>
-                        <p className="font-medium text-gray-900 mb-1">Apa keunggulan baja ringan?</p>
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 mb-0.5 md:mb-1 text-sm md:text-base">Apa keunggulan baja ringan?</p>
                         <p className="text-xs text-gray-500">Perbandingan dengan material lain</p>
                       </div>
                     </div>
@@ -772,17 +843,17 @@ export default function Home() {
 
                   <button
                     onClick={() => setInput('Bagaimana cara pemasangan baja ringan?')}
-                    className="text-left p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all group"
+                    className="text-left p-3 md:p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all group active:scale-95"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="text-orange-600 group-hover:scale-110 transition-transform">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="flex items-start gap-2 md:gap-3">
+                      <div className="text-orange-600 group-hover:scale-110 transition-transform flex-shrink-0">
+                        <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
                       </div>
-                      <div>
-                        <p className="font-medium text-gray-900 mb-1">Bagaimana cara pemasangan?</p>
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 mb-0.5 md:mb-1 text-sm md:text-base">Bagaimana cara pemasangan?</p>
                         <p className="text-xs text-gray-500">Proses instalasi baja ringan</p>
                       </div>
                     </div>
@@ -810,40 +881,54 @@ export default function Home() {
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-3xl ${
+                className={`w-full md:max-w-3xl ${
                   message.role === 'user'
                     ? 'bg-blue-600 text-white'
                     : 'bg-white text-gray-900 border border-gray-200'
-                } rounded-lg px-5 py-4 shadow-sm`}
+                } rounded-lg px-3 md:px-5 py-3 md:py-4 shadow-sm`}
               >
-                <div className="flex items-start justify-between mb-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide opacity-70">
-                    {message.role === 'user' ? 'You' : 'Assistant'}
+                <div className="flex items-start justify-between mb-1 md:mb-2">
+                  <span className="text-[10px] md:text-xs font-semibold uppercase tracking-wide opacity-70">
+                    {message.role === 'user' ? 'Anda' : 'Asisten'}
                   </span>
-                  <span className="text-xs opacity-60 ml-4">
+                  <span className="text-[10px] md:text-xs opacity-60 ml-2 md:ml-4 flex-shrink-0">
                     {formatTime(message.timestamp)}
                   </span>
                 </div>
 
-                <div className="prose prose-sm max-w-none">
+                <div className="prose prose-sm max-w-none text-sm md:text-base leading-relaxed">
                   {message.role === 'assistant' && message.citations && message.citations.length > 0
                     ? renderContentWithCitations(message.content, message.citations, index)
                     : (
-                        <p className="whitespace-pre-wrap">{message.content}</p>
+                        <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
                       )
                   }
                 </div>
 
-                {/* Citations - ChatGPT Style */}
-                {message.role === 'assistant' && message.citations && message.citations.length > 0 && (() => {
-                  const groupedCitations = groupCitationsByDocument(message.citations);
-                  return (
+                {/* Display images if present */}
+                {message.images && message.images.length > 0 && (
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {message.images.map((imageUrl, imgIndex) => (
+                      <div key={imgIndex} className="relative group">
+                        <img
+                          src={imageUrl}
+                          alt={`Gambar ${imgIndex + 1}`}
+                          className="w-full h-auto rounded-lg border border-gray-300 cursor-pointer hover:opacity-90 transition"
+                          onClick={() => window.open(imageUrl, '_blank')}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Citations - Ungrouped for consistent numbering */}
+                {message.role === 'assistant' && message.citations && message.citations.length > 0 && (
                     <div className="mt-4">
                       {/* Source Chips */}
                       <div className="flex flex-wrap gap-2 mb-3">
-                        {groupedCitations.map((group, groupIndex) => (
+                        {message.citations.map((citation, citIndex) => (
                           <button
-                            key={groupIndex}
+                            key={citIndex}
                             onClick={() => toggleCitations(index)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-xs font-medium text-gray-700 transition-colors border border-gray-300"
                           >
@@ -860,7 +945,7 @@ export default function Home() {
                                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                               />
                             </svg>
-                            <span>{groupIndex + 1}</span>
+                            <span>{citIndex + 1}</span>
                           </button>
                         ))}
                       </div>
@@ -869,32 +954,30 @@ export default function Home() {
                       {expandedCitations === index && (
                         <div className="mt-3 space-y-2 border-t border-gray-200 pt-3">
                           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                            Sources
+                            Sumber
                           </p>
-                          {groupedCitations.map((group, groupIndex) => (
+                          {message.citations.map((citation, citIndex) => (
                             <div
-                              key={groupIndex}
+                              key={citIndex}
                               className="bg-gray-50 rounded-lg p-3 text-xs border border-gray-200 hover:border-gray-300 transition-colors"
                             >
                               <div className="flex items-start gap-2">
                                 <span className="flex-shrink-0 w-5 h-5 bg-gray-200 rounded-full flex items-center justify-center text-[10px] font-bold text-gray-700">
-                                  {groupIndex + 1}
+                                  {citIndex + 1}
                                 </span>
                                 <div className="flex-1 min-w-0">
                                   <div className="font-semibold text-gray-900 mb-1 flex items-center gap-1">
-                                    <span className="truncate">{group.citation.document_name}</span>
-                                    {group.pages.length > 0 && (
+                                    <span className="truncate">{citation.document_name}</span>
+                                    {citation.page && (
                                       <span className="text-gray-500 flex-shrink-0">
-                                        • Page{group.pages.length > 1 ? 's' : ''} {group.pages.sort((a, b) => a - b).join(', ')}
+                                        • Halaman {citation.page}
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-gray-600 leading-relaxed space-y-2">
-                                    {group.chunks.map((chunk, chunkIdx) => (
-                                      <div key={chunkIdx} className="text-xs line-clamp-2">
-                                        {chunk}
-                                      </div>
-                                    ))}
+                                  <div className="text-gray-600 leading-relaxed">
+                                    <div className="text-xs line-clamp-2">
+                                      {citation.content}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -903,15 +986,14 @@ export default function Home() {
                         </div>
                       )}
                     </div>
-                  );
-                })()}
+                )}
               </div>
             </div>
           ))}
 
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-white border border-gray-200 rounded-lg px-5 py-4 shadow-sm">
+              <div className="bg-white border border-gray-200 rounded-lg px-4 md:px-5 py-3 md:py-4 shadow-sm">
                 <div className="flex items-center space-x-2">
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
@@ -927,7 +1009,7 @@ export default function Home() {
 
         {/* Input Form */}
         <div
-          className="bg-white border-t px-4 py-4"
+          className="bg-white border-t px-3 md:px-4 py-3 md:py-4"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -936,18 +1018,18 @@ export default function Home() {
             {/* Drag and Drop Overlay */}
             {isDragging && (
               <div className="fixed inset-0 bg-blue-500 bg-opacity-20 z-50 flex items-center justify-center pointer-events-none">
-                <div className="bg-white rounded-lg p-8 shadow-2xl">
-                  <svg className="w-16 h-16 text-blue-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="bg-white rounded-lg p-6 md:p-8 shadow-2xl mx-4">
+                  <svg className="w-12 h-12 md:w-16 md:h-16 text-blue-600 mx-auto mb-3 md:mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  <p className="text-lg font-semibold text-gray-900">Drop images here</p>
+                  <p className="text-base md:text-lg font-semibold text-gray-900">Letakkan gambar di sini</p>
                 </div>
               </div>
             )}
 
             {/* Image Previews */}
             {selectedImages.length > 0 && (
-              <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="mb-3 p-2 md:p-3 bg-gray-50 rounded-lg border border-gray-200">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-semibold text-gray-700">
                     {selectedImages.length} gambar dipilih
@@ -955,27 +1037,27 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => setSelectedImages([])}
-                    className="text-xs text-red-600 hover:text-red-800 font-medium"
+                    className="text-xs text-red-600 hover:text-red-800 font-medium active:scale-95 transition"
                   >
                     Hapus semua
                   </button>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
                   {selectedImages.map((image, index) => (
                     <div key={index} className="relative group">
                       <img
                         src={URL.createObjectURL(image)}
                         alt={`Preview ${index + 1}`}
-                        className="w-full h-20 object-cover rounded border border-gray-300"
+                        className="w-full h-16 md:h-20 object-cover rounded border border-gray-300"
                       />
                       <button
                         type="button"
                         onClick={() => removeImage(index)}
-                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold hover:bg-red-600"
+                        className="absolute -top-2 -right-2 w-6 h-6 md:w-7 md:h-7 bg-red-500 text-white rounded-full flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs md:text-sm font-bold hover:bg-red-600 active:scale-90"
                       >
                         ×
                       </button>
-                      <p className="text-xs text-gray-600 truncate mt-1">
+                      <p className="text-xs text-gray-600 truncate mt-1 hidden md:block">
                         {image.name}
                       </p>
                     </div>
@@ -984,7 +1066,7 @@ export default function Home() {
               </div>
             )}
 
-            <div className="flex space-x-4">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
               {/* Hidden file input */}
               <input
                 ref={fileInputRef}
@@ -995,62 +1077,57 @@ export default function Home() {
                 className="hidden"
               />
 
-              {/* Image upload button with dropdown */}
-              <div className="relative">
+              {/* Image upload button - Simple version */}
+              <div className="sm:order-first">
                 <button
                   type="button"
-                  onClick={() => setShowImageMenu(!showImageMenu)}
+                  onClick={() => fileInputRef.current?.click()}
                   disabled={loading}
-                  className="flex-shrink-0 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed transition"
+                  className="w-full sm:w-auto flex-shrink-0 px-4 sm:p-3 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed transition active:scale-95 flex items-center justify-center gap-2"
                   title="Upload gambar"
                 >
                   <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
+                  <span className="sm:hidden text-sm font-medium text-gray-700">Upload Gambar</span>
                 </button>
-
-                {/* Dropdown menu */}
-                {showImageMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                      </svg>
-                      Choose from files
-                    </button>
-                    <div className="border-t border-gray-200 my-1"></div>
-                    <div className="px-4 py-2 text-xs text-gray-500">
-                      Or drag & drop images anywhere
-                    </div>
-                  </div>
-                )}
               </div>
 
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={selectedImages.length > 0 ? "Tanyakan tentang gambar ini..." : "Ask a question..."}
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                disabled={loading}
-              />
-              <button
-                type="submit"
-                disabled={(!input.trim() && selectedImages.length === 0) || loading}
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
-              >
-                {loading ? 'Sending...' : 'Send'}
-              </button>
+              <div className="flex gap-2 sm:flex-1">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={selectedImages.length > 0 ? "Tanyakan tentang gambar ini..." : "Tanyakan sesuatu..."}
+                  className="flex-1 px-3 md:px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm md:text-base"
+                  disabled={loading}
+                />
+                <button
+                  type="submit"
+                  disabled={(!input.trim() && selectedImages.length === 0) || loading}
+                  className="bg-blue-600 text-white px-4 sm:px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium text-sm md:text-base active:scale-95 flex-shrink-0"
+                >
+                  {loading ? (
+                    <>
+                      <span className="hidden sm:inline">Mengirim...</span>
+                      <span className="sm:hidden">...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="hidden sm:inline">Kirim</span>
+                      <svg className="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                      </svg>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             <p className="text-xs text-gray-500 mt-2 text-center">
               {selectedImages.length > 0
-                ? `Upload ${selectedImages.length} gambar dengan pertanyaan Anda`
-                : 'Ask questions, upload images, or drag & drop files'
+                ? `Unggah ${selectedImages.length} gambar dengan pertanyaan Anda`
+                : 'Tanyakan sesuatu, unggah gambar, atau seret & lepas file'
               }
             </p>
           </form>

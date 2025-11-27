@@ -17,12 +17,16 @@ interface QueryRequest {
   stream?: boolean;
 }
 
+// Simple LRU cache for embeddings
+const embeddingCache = new Map<string, number[]>();
+const MAX_CACHE_SIZE = 100;
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
     const body: QueryRequest = await request.json();
-    const { query, k = 5, stream = false } = body;
+    const { query, k = 3, stream = false } = body; // Reduced k from 5 to 3 for faster response
 
     if (!query || query.trim().length === 0) {
       return NextResponse.json(
@@ -31,10 +35,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 1: Embed query
-    console.log('🔍 Embedding query...');
-    const embedder = getEmbeddingProvider();
-    const queryEmbedding = await embedder.embedQuery(query);
+    // Step 1: Embed query (with caching)
+    const queryCacheKey = query.trim().toLowerCase();
+    let queryEmbedding: number[];
+
+    if (embeddingCache.has(queryCacheKey)) {
+      console.log('✨ Using cached embedding');
+      queryEmbedding = embeddingCache.get(queryCacheKey)!;
+    } else {
+      console.log('🔍 Generating new embedding...');
+      const embedder = getEmbeddingProvider();
+      queryEmbedding = await embedder.embedQuery(query);
+
+      // Add to cache with LRU eviction
+      if (embeddingCache.size >= MAX_CACHE_SIZE) {
+        const firstKey = embeddingCache.keys().next().value;
+        embeddingCache.delete(firstKey);
+      }
+      embeddingCache.set(queryCacheKey, queryEmbedding);
+    }
 
     // Step 2: Vector search
     console.log('🔎 Searching vector database...');
