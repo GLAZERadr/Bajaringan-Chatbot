@@ -344,11 +344,98 @@ export default function Home() {
               } else if (data.type === 'done') {
                 // Finalize message
                 console.log('🏁 Stream done, final content length:', fullContent.length);
-                setMessages(prev => prev.map((msg, idx) =>
-                  idx === messageIndex
-                    ? { ...msg, content: fullContent, citations }
-                    : msg
-                ));
+
+                // Check if fullContent contains CALCULATOR_REQUEST
+                if (fullContent.includes('CALCULATOR_REQUEST')) {
+                  console.log('📊 Calculator request detected in stream');
+
+                  // Extract JSON from CALCULATOR_REQUEST
+                  const jsonMatch = fullContent.match(/CALCULATOR_REQUEST\s*(\{[\s\S]*?\})/);
+
+                  if (jsonMatch) {
+                    try {
+                      const calcInput = JSON.parse(jsonMatch[1]);
+                      console.log('📊 Parsed calculator input:', calcInput);
+
+                      // Map field names (handle both English and Indonesian)
+                      const apiInput = {
+                        modelAtap: calcInput.roof_type || calcInput.model_atap || 'Pelana',
+                        buildingType: calcInput.building_type || calcInput.tipe_bangunan || 'Residential',
+                        panjang: calcInput.length_m || calcInput.panjang || calcInput.length || 0,
+                        lebar: calcInput.width_m || calcInput.lebar || calcInput.width || 0,
+                        overstek: calcInput.overhang_m || calcInput.overstek || calcInput.overhang || 0,
+                        sudut: calcInput.slope_deg || calcInput.sudut_kemiringan || calcInput.sudut || calcInput.slope_degree || 0,
+                        jenisAtap: calcInput.cover_material || calcInput.jenis_penutup || calcInput.jenis_atap || 'Genteng Metal'
+                      };
+
+                      // Call calculator API
+                      const calcResponse = await fetch('/api/calculate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(apiInput)
+                      });
+
+                      if (calcResponse.ok) {
+                        const calcData = await calcResponse.json();
+
+                        // Format result
+                        const formattedResult = `Berikut estimasi material untuk atap ${apiInput.modelAtap} ${apiInput.buildingType} ${apiInput.panjang}×${apiInput.lebar}m:
+
+**LUAS ATAP**
+- Geometrik: ${calcData.results.area.geometric.formatted}
+- Material: ${calcData.results.area.material.formatted}
+- Panjang Miring: ${calcData.results.area.slopeLength.formatted}
+
+**MATERIAL RANGKA**
+- ${calcData.results.materials.mainFrame.name}: ${calcData.results.materials.mainFrame.count} ${calcData.results.materials.mainFrame.unit}
+- ${calcData.results.materials.secondaryFrame.name}: ${calcData.results.materials.secondaryFrame.count} ${calcData.results.materials.secondaryFrame.unit}
+
+**PENUTUP ATAP**
+- ${calcData.results.materials.cover.name}: ${calcData.results.materials.cover.count} ${calcData.results.materials.cover.unit}
+
+**SEKRUP**
+- Sekrup Atap: ${calcData.results.materials.screws.roofing.count.toLocaleString('id-ID')} ${calcData.results.materials.screws.roofing.unit}
+- Sekrup Rangka: ${calcData.results.materials.screws.frame.count.toLocaleString('id-ID')} ${calcData.results.materials.screws.frame.unit}
+- **Total Sekrup**: ${calcData.results.materials.screws.total.count.toLocaleString('id-ID')} ${calcData.results.materials.screws.total.unit}
+
+💡 **Catatan**: Ini estimasi dasar. Untuk detail akurat dan perhitungan biaya, konsultasi dengan kontraktor profesional.`;
+
+                        setMessages(prev => prev.map((msg, idx) =>
+                          idx === messageIndex
+                            ? { ...msg, content: formattedResult, citations: [] }
+                            : msg
+                        ));
+                      } else {
+                        setMessages(prev => prev.map((msg, idx) =>
+                          idx === messageIndex
+                            ? { ...msg, content: 'Maaf, terjadi kesalahan saat menghitung material.', citations: [] }
+                            : msg
+                        ));
+                      }
+                    } catch (error) {
+                      console.error('❌ Error executing calculator:', error);
+                      setMessages(prev => prev.map((msg, idx) =>
+                        idx === messageIndex
+                          ? { ...msg, content: fullContent, citations }
+                          : msg
+                      ));
+                    }
+                  } else {
+                    // No valid JSON, show original
+                    setMessages(prev => prev.map((msg, idx) =>
+                      idx === messageIndex
+                        ? { ...msg, content: fullContent, citations }
+                        : msg
+                    ));
+                  }
+                } else {
+                  // Normal finalization
+                  setMessages(prev => prev.map((msg, idx) =>
+                    idx === messageIndex
+                      ? { ...msg, content: fullContent, citations }
+                      : msg
+                  ));
+                }
               } else if (data.type === 'error') {
                 // Handle error
                 console.error('❌ Stream error:', data.error);
@@ -439,11 +526,23 @@ export default function Home() {
         // Clear images after sending
         setSelectedImages([]);
       } else {
-        // Regular text query with streaming (reduced k for faster response)
+        // Prepare conversation history (last 10 messages excluding current)
+        const conversationHistory = messages.slice(-10).map(msg => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp
+        }));
+
+        // Regular text query with streaming and conversation history
         response = await fetch('/api/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: input, k: 3, stream: true }),
+          body: JSON.stringify({
+            query: input,
+            k: 3,
+            stream: true,
+            conversationHistory
+          }),
         });
       }
 
@@ -462,14 +561,111 @@ export default function Home() {
         console.log('Received data:', data);
 
         if (response.ok) {
-          const assistantMessage: Message = {
-            role: 'assistant',
-            content: data.answer,
-            citations: data.citations || [],
-            timestamp: Date.now()
-          };
+          // Check if response contains calculator request
+          if (data.answer && data.answer.includes('CALCULATOR_REQUEST')) {
+            console.log('📊 Calculator request detected');
 
-          setMessages(prev => [...prev, assistantMessage]);
+            // Extract JSON from CALCULATOR_REQUEST
+            const jsonMatch = data.answer.match(/CALCULATOR_REQUEST\s*(\{[\s\S]*?\})/);
+
+            if (jsonMatch) {
+              try {
+                const calcInput = JSON.parse(jsonMatch[1]);
+                console.log('📊 Parsed calculator input:', calcInput);
+
+                // Map field names from BARI response to API format (handle both English and Indonesian)
+                const apiInput = {
+                  modelAtap: calcInput.roof_type || calcInput.model_atap || 'Pelana',
+                  buildingType: calcInput.building_type || calcInput.tipe_bangunan || 'Residential',
+                  panjang: calcInput.length_m || calcInput.panjang || calcInput.length || 0,
+                  lebar: calcInput.width_m || calcInput.lebar || calcInput.width || 0,
+                  overstek: calcInput.overhang_m || calcInput.overstek || calcInput.overhang || 0,
+                  sudut: calcInput.slope_deg || calcInput.sudut_kemiringan || calcInput.sudut || calcInput.slope_degree || 0,
+                  jenisAtap: calcInput.cover_material || calcInput.jenis_penutup || calcInput.jenis_atap || 'Genteng Metal'
+                };
+
+                console.log('📊 Calling calculator API with:', apiInput);
+
+                // Call calculator API
+                const calcResponse = await fetch('/api/calculate', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(apiInput)
+                });
+
+                if (calcResponse.ok) {
+                  const calcData = await calcResponse.json();
+                  console.log('✅ Calculator result:', calcData);
+
+                  // Format calculator results
+                  const formattedResult = `Berikut estimasi material untuk atap ${apiInput.modelAtap} ${apiInput.buildingType} ${apiInput.panjang}×${apiInput.lebar}m:
+
+**LUAS ATAP**
+- Geometrik: ${calcData.results.area.geometric.formatted}
+- Material: ${calcData.results.area.material.formatted}
+- Panjang Miring: ${calcData.results.area.slopeLength.formatted}
+
+**MATERIAL RANGKA**
+- ${calcData.results.materials.mainFrame.name}: ${calcData.results.materials.mainFrame.count} ${calcData.results.materials.mainFrame.unit}
+- ${calcData.results.materials.secondaryFrame.name}: ${calcData.results.materials.secondaryFrame.count} ${calcData.results.materials.secondaryFrame.unit}
+
+**PENUTUP ATAP**
+- ${calcData.results.materials.cover.name}: ${calcData.results.materials.cover.count} ${calcData.results.materials.cover.unit}
+
+**SEKRUP**
+- Sekrup Atap: ${calcData.results.materials.screws.roofing.count.toLocaleString('id-ID')} ${calcData.results.materials.screws.roofing.unit}
+- Sekrup Rangka: ${calcData.results.materials.screws.frame.count.toLocaleString('id-ID')} ${calcData.results.materials.screws.frame.unit}
+- **Total Sekrup**: ${calcData.results.materials.screws.total.count.toLocaleString('id-ID')} ${calcData.results.materials.screws.total.unit}
+
+💡 **Catatan**: Ini estimasi dasar. Untuk detail akurat dan perhitungan biaya, konsultasi dengan kontraktor profesional.`;
+
+                  const assistantMessage: Message = {
+                    role: 'assistant',
+                    content: formattedResult,
+                    citations: [],
+                    timestamp: Date.now()
+                  };
+
+                  setMessages(prev => [...prev, assistantMessage]);
+                } else {
+                  const errorData = await calcResponse.json();
+                  const errorMessage: Message = {
+                    role: 'assistant',
+                    content: `Maaf, terjadi kesalahan saat menghitung: ${errorData.error || errorData.message || 'Unknown error'}`,
+                    timestamp: Date.now()
+                  };
+                  setMessages(prev => [...prev, errorMessage]);
+                }
+              } catch (error) {
+                console.error('❌ Error parsing calculator request:', error);
+                const errorMessage: Message = {
+                  role: 'assistant',
+                  content: `Maaf, terjadi kesalahan saat memproses data kalkulator.`,
+                  timestamp: Date.now()
+                };
+                setMessages(prev => [...prev, errorMessage]);
+              }
+            } else {
+              // No valid JSON found, show original response
+              const assistantMessage: Message = {
+                role: 'assistant',
+                content: data.answer,
+                citations: data.citations || [],
+                timestamp: Date.now()
+              };
+              setMessages(prev => [...prev, assistantMessage]);
+            }
+          } else {
+            // Normal response
+            const assistantMessage: Message = {
+              role: 'assistant',
+              content: data.answer,
+              citations: data.citations || [],
+              timestamp: Date.now()
+            };
+
+            setMessages(prev => [...prev, assistantMessage]);
+          }
         } else {
           const errorMessage: Message = {
             role: 'assistant',
@@ -531,31 +727,43 @@ export default function Home() {
 
         // Check for both [1] style citations and plain numbers after periods
         if (typeof text === 'string' && /\[\d+\]/.test(text)) {
-          // Split by [number] pattern, keeping the brackets
-          const parts = text.split(/(\[\d+\])/g);
+          // Split by [number] pattern, keeping the brackets and handling spaces between citations
+          // Pattern matches: [1] or [1] followed by space and another [2]
+          const parts = text.split(/(\[\d+\](?:\s+\[\d+\])*)/g);
 
           const rendered = parts.map((part, partIndex) => {
-            // Match [1], [2], etc.
-            const citationMatch = part.match(/^\[(\d+)\]$/);
-
-            if (citationMatch) {
-              const citationNumber = parseInt(citationMatch[1]);
-              const citation = citations[citationNumber - 1];
+            // Check if this part contains citations
+            if (/\[\d+\]/.test(part)) {
+              // Extract all individual citations from this part (e.g., "[1] [2]" -> ["[1]", "[2]"])
+              const individualCitations = part.match(/\[\d+\]/g) || [];
 
               return (
-                <button
-                  key={partIndex}
-                  onClick={() => citation && setSelectedCitation({ citation, index: citationNumber - 1 })}
-                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 mx-0.5 bg-blue-100 hover:bg-blue-200 rounded text-[10px] font-bold text-blue-700 transition-colors cursor-pointer"
-                  style={{
-                    verticalAlign: 'super',
-                    fontSize: '0.7em',
-                    lineHeight: '1.2'
-                  }}
-                  title={citation ? `Klik untuk melihat sumber: ${citation.document_name}` : ''}
-                >
-                  {citationNumber}
-                </button>
+                <React.Fragment key={partIndex}>
+                  {individualCitations.map((cite, citeIdx) => {
+                    const citationMatch = cite.match(/\[(\d+)\]/);
+                    if (citationMatch) {
+                      const citationNumber = parseInt(citationMatch[1]);
+                      const citation = citations[citationNumber - 1];
+
+                      return (
+                        <button
+                          key={`${partIndex}-${citeIdx}`}
+                          onClick={() => citation && setSelectedCitation({ citation, index: citationNumber - 1 })}
+                          className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 mx-0.5 bg-blue-100 hover:bg-blue-200 rounded text-[10px] font-bold text-blue-700 transition-colors cursor-pointer"
+                          style={{
+                            verticalAlign: 'super',
+                            fontSize: '0.7em',
+                            lineHeight: '1.2'
+                          }}
+                          title={citation ? `Klik untuk melihat sumber: ${citation.document_name}` : ''}
+                        >
+                          {citationNumber}
+                        </button>
+                      );
+                    }
+                    return null;
+                  })}
+                </React.Fragment>
               );
             }
 

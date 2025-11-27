@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/vector/neondb';
 import { getEmbeddingProvider } from '@/embeddings';
 import { getGeminiLLM } from '@/llm/gemini';
+import { ConversationMessage } from '@/types/memory';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,7 @@ interface QueryRequest {
   query: string;
   k?: number;
   stream?: boolean;
+  conversationHistory?: ConversationMessage[]; // Add conversation history
 }
 
 // Simple LRU cache for embeddings
@@ -26,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body: QueryRequest = await request.json();
-    const { query, k = 3, stream = false } = body; // Reduced k from 5 to 3 for faster response
+    const { query, k = 3, stream = false, conversationHistory = [] } = body;
 
     if (!query || query.trim().length === 0) {
       return NextResponse.json(
@@ -120,16 +122,17 @@ IMPORTANT: This question doesn't have relevant information in the uploaded docum
 
     console.log(`✅ Found ${searchResults.length} relevant chunks`);
 
-    // Step 4: Generate RAG answer with context
+    // Step 4: Generate RAG answer with context and conversation history
     if (stream) {
       // Streaming response
-      return handleStreamingResponse(query, searchResults, llm, db, startTime);
+      return handleStreamingResponse(query, searchResults, conversationHistory, llm, db, startTime);
     }
 
     // Non-streaming response
     const ragResponse = await llm.generateRAGAnswer({
       query,
-      chunks: searchResults
+      chunks: searchResults,
+      conversationHistory
     });
 
     const latency = Date.now() - startTime;
@@ -176,6 +179,7 @@ IMPORTANT: This question doesn't have relevant information in the uploaded docum
 async function handleStreamingResponse(
   query: string,
   searchResults: any[],
+  conversationHistory: ConversationMessage[],
   llm: any,
   db: any,
   startTime: number
@@ -203,7 +207,8 @@ async function handleStreamingResponse(
         console.log('📝 Starting to stream answer from Gemini...');
         const generator = llm.generateRAGAnswerStream({
           query,
-          chunks: searchResults
+          chunks: searchResults,
+          conversationHistory
         });
 
         let chunkCount = 0;
@@ -217,6 +222,74 @@ async function handleStreamingResponse(
         }
 
         console.log(`✅ Streaming complete. Total chunks: ${chunkCount}, Total length: ${fullAnswer.length}`);
+
+        // Check if response contains CALCULATOR_REQUEST
+        if (fullAnswer.includes('CALCULATOR_REQUEST')) {
+          console.log('🧮 Detected calculator request, processing...');
+
+          try {
+            // Extract JSON from the response
+            const jsonMatch = fullAnswer.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const calcParams = JSON.parse(jsonMatch[0]);
+              console.log('📊 Calculator params:', calcParams);
+
+              // Map fields to calculator API format (handle both English and Indonesian field names)
+              const calculatorInput = {
+                modelAtap: calcParams.roof_type || calcParams.model_atap || 'Pelana',
+                buildingType: calcParams.building_type || calcParams.tipe_bangunan || 'Residential',
+                panjang: calcParams.length || calcParams.panjang || 0,
+                lebar: calcParams.width || calcParams.lebar || 0,
+                overstek: calcParams.overhang || calcParams.overstek || 0,
+                sudut: calcParams.slope_degree || calcParams.sudut_kemiringan || calcParams.sudut || 0,
+                jenisAtap: calcParams.cover_material || calcParams.jenis_penutup || calcParams.jenis_atap || 'Genteng Metal'
+              };
+
+              // Call calculator API
+              const calcResponse = await fetch('http://localhost:3000/api/calculate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(calculatorInput)
+              });
+
+              if (calcResponse.ok) {
+                const calcResult = await calcResponse.json();
+                console.log('✅ Calculator result:', calcResult);
+
+                // Format nice response
+                const formattedResponse = `
+Oke, saya sudah hitung estimasi material untuk atap ${calculatorInput.modelAtap} ${calculatorInput.buildingType} ${calculatorInput.panjang}×${calculatorInput.lebar}m:
+
+**LUAS ATAP**
+- Geometrik: ${calcResult.results.area.geometric.formatted}
+- Material (dengan waste factor): ${calcResult.results.area.material.formatted}
+
+**RANGKA**
+- ${calcResult.results.materials.mainFrame.name}: **${calcResult.results.materials.mainFrame.count} batang**
+- ${calcResult.results.materials.secondaryFrame.name}: **${calcResult.results.materials.secondaryFrame.count} batang**
+
+**PENUTUP ATAP**
+- ${calcResult.results.materials.cover.name}: **${calcResult.results.materials.cover.count} lembar**
+
+**SEKRUP**
+- Sekrup Atap: ${calcResult.results.materials.screws.roofing.count} buah
+- Sekrup Rangka: ${calcResult.results.materials.screws.frame.count} buah
+- **Total: ${calcResult.results.materials.screws.total.count} buah**
+
+📌 *Catatan: Ini estimasi material dasar. Untuk akurasi maksimal, konsultasi dengan kontraktor untuk detail lapangan.*`;
+
+                // Send formatted response as new chunks
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: '\n\n' + formattedResponse })}\n\n`)
+                );
+
+                fullAnswer += '\n\n' + formattedResponse;
+              }
+            }
+          } catch (calcError) {
+            console.error('❌ Calculator processing error:', calcError);
+          }
+        }
 
         // Send done signal
         const latency = Date.now() - startTime;
