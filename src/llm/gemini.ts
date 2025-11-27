@@ -86,8 +86,8 @@ ${contextBlocks}
 PERTANYAAN: ${query}
 
 INSTRUKSI PENTING:
-1. Baca semua sumber dengan teliti
-2. Prioritaskan info yang paling relevan
+1. JAWAB SINGKAT DAN LANGSUNG KE INTI - maksimal 3-4 kalimat kecuali memang butuh penjelasan panjang
+2. Jangan bertele-tele, langsung kasih info yang diminta
 3. WAJIB cite sumber pakai format [1], [2], [3] setelah info yang kamu ambil dari sumber
    Contoh BENAR: "Baja ringan pakai teknologi Cold Formed Steel [1] yang lebih kuat dari kayu [2]."
    Contoh SALAH: "...Cold Formed Steel 1" atau "...dari kayu 2." atau "...lebih kuat [1]."
@@ -102,10 +102,9 @@ INSTRUKSI PENTING:
    - Baru tambahin pengetahuan umum kamu dengan bilang:
      "Dari pengalaman saya sih..." atau "Biasanya di lapangan..."
 7. PENTING: Selesaikan jawaban dengan lengkap dan jangan berhenti di tengah
-8. Tutup dengan pertanyaan atau tawaran bantuan kalau relevan
-   Contoh: "Ada yang mau saya jelasin lebih detail ga?"
+8. Jangan paksa tanya balik kalau ga perlu - user mau jawaban cepat
 
-JAWABAN (natural seperti ngobrol, LENGKAP sampai selesai):`;
+JAWABAN (natural, SINGKAT, to the point):`;
   }
 
   /**
@@ -544,8 +543,8 @@ ${contextBlocks}
 PERTANYAAN PENGGUNA: ${query}
 
 INSTRUKSI PENTING:
-1. Jawab santai dan natural seperti ngobrol sama teman
-2. Pakai "saya" atau "aku", bukan "AI" atau "sistem"
+1. JAWAB SINGKAT DAN TO THE POINT - maksimal 3-5 kalimat kecuali ada masalah serius
+2. Jangan bertele-tele, langsung identifikasi masalah dan solusinya
 3. Gabungkan info dari gambar dan dokumen
 4. Kasih saran praktis yang langsung bisa diterapin
 5. Cite sumber pakai format [1], [2], dll - WAJIB gunakan kurung siku, jangan angka telanjang
@@ -554,8 +553,9 @@ INSTRUKSI PENTING:
 6. Kalau gambar nunjukin masalah serius, tekankan pentingnya tindakan cepat
 7. Pakai kata sapaan seperti "nih", "kok", "ya" biar lebih natural
 8. Selesaikan jawaban dengan lengkap, jangan berhenti di tengah
+9. Jangan paksa tanya balik - user mau jawaban cepat
 
-JAWABAN (santai dan helpful):`;
+JAWABAN (santai, SINGKAT, langsung ke solusi):`;
 
       const response = await fetch(this.apiUrl, {
         method: 'POST',
