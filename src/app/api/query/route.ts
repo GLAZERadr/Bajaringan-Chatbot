@@ -8,6 +8,8 @@ import { getDB } from '@/vector/neondb';
 import { getEmbeddingProvider } from '@/embeddings';
 import { getGeminiLLM } from '@/llm/gemini';
 import { ConversationMessage } from '@/types/memory';
+import { getIntentDetector } from '@/services/intent-detector';
+import { getIntentHandlers } from '@/services/intent-handlers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,6 +38,84 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // ============================================
+    // STEP 0: INTENT DETECTION (NLU LAYER)
+    // ============================================
+    console.log('🎯 Starting intent detection...');
+    const detector = getIntentDetector();
+    const handlers = getIntentHandlers();
+
+    // Prepare conversation history for intent detection
+    const conversationStrings = conversationHistory.map(msg =>
+      `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
+    );
+
+    const intentResult = await detector.detectIntent(query, conversationStrings);
+
+    console.log(`📊 Intent detected: ${intentResult.classification.intent} (confidence: ${intentResult.classification.confidence})`);
+    console.log(`📦 Extracted slots:`, intentResult.slots);
+    console.log(`❓ Missing slots:`, intentResult.missing_slots);
+
+    // Handle specific intents (not general_question or pertanyaan_produk)
+    const shouldHandleIntent = intentResult.classification.intent !== 'general_question'
+                            && intentResult.classification.intent !== 'pertanyaan_produk'
+                            && intentResult.classification.confidence >= 0.7;
+
+    if (shouldHandleIntent) {
+      console.log(`✅ Handling intent: ${intentResult.classification.intent}`);
+
+      // If slots are incomplete, ask for missing information
+      if (!intentResult.is_complete && intentResult.next_question) {
+        console.log(`📝 Asking for missing slots: ${intentResult.missing_slots.join(', ')}`);
+
+        return NextResponse.json({
+          answer: intentResult.next_question,
+          citations: [],
+          metadata: {
+            intent: intentResult.classification.intent,
+            confidence: intentResult.classification.confidence,
+            missing_slots: intentResult.missing_slots,
+            is_complete: false,
+            latency_ms: Date.now() - startTime
+          }
+        });
+      }
+
+      // Slots complete, handle the intent
+      const handlerResponse = await handlers.handleIntent(
+        intentResult.classification.intent,
+        intentResult.slots,
+        query
+      );
+
+      console.log(`🎉 Intent handled: ${handlerResponse.action}`);
+
+      // Log to database
+      const db = getDB();
+      await db.init();
+      await db.logQuery({
+        query,
+        retrieved_chunks: [],
+        answer: handlerResponse.message,
+        latency_ms: Date.now() - startTime
+      });
+
+      return NextResponse.json({
+        answer: handlerResponse.message,
+        citations: [],
+        metadata: {
+          intent: intentResult.classification.intent,
+          confidence: intentResult.classification.confidence,
+          action: handlerResponse.action,
+          slots: intentResult.slots,
+          latency_ms: Date.now() - startTime
+        }
+      });
+    }
+
+    // Low confidence or general question → proceed with RAG
+    console.log(`📚 Proceeding with RAG (intent: ${intentResult.classification.intent}, confidence: ${intentResult.classification.confidence})`);
 
     // Step 1: Embed query (with caching)
     const queryCacheKey = query.trim().toLowerCase();
