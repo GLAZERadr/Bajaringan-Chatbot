@@ -76,6 +76,23 @@ export class IntentDetector {
 ${historyContext}
 CURRENT USER MESSAGE: "${userMessage}"
 
+IMPORTANT TOPIC RESTRICTION:
+BARI ONLY handles topics related to:
+- Roofing (atap)
+- Steel frame construction (baja ringan, rangka atap)
+- Roof materials (genteng, spandek, uPVC, etc)
+- Building construction related to roofing
+- Warranties, pricing, surveys, complaints about roofing
+- Safety (K3) for roofing installation
+- Contact information for roofing services
+
+BARI DOES NOT handle:
+- Mobile phones, smartphones, or telecommunication devices
+- General electronics or gadgets
+- Non-roofing construction topics
+- Unrelated business or services
+- If the question is completely off-topic, classify as "general_question" with LOW confidence (<0.3)
+
 Your task is to:
 1. Classify the user's intent
 2. Extract all relevant slots (entities) from BOTH the conversation history AND current message

@@ -10,6 +10,7 @@ import { getGeminiLLM } from '@/llm/gemini';
 import { ConversationMessage } from '@/types/memory';
 import { getIntentDetector } from '@/services/intent-detector';
 import { getIntentHandlers } from '@/services/intent-handlers';
+import { matchQAKnowledge, logQAMatch } from '@/services/qa-matcher';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -114,10 +115,84 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Check for off-topic questions (very low confidence)
+    if (intentResult.classification.confidence < 0.3) {
+      console.log(`🚫 Off-topic question detected (confidence: ${intentResult.classification.confidence})`);
+
+      const offTopicMessage = `Maaf, aku BARI - asisten khusus untuk atap dan baja ringan. Pertanyaan kamu sepertinya di luar topik yang aku handle ya.
+
+Aku bisa bantu kamu untuk:
+✅ Hitung kebutuhan material atap
+✅ Estimasi biaya pemasangan
+✅ Konsultasi masalah atap (bocor, karat, panas, dll)
+✅ Info garansi dan perawatan
+✅ Hubungi tim sales/teknis
+
+Ada yang bisa aku bantu terkait atap?`;
+
+      const db = getDB();
+      await db.init();
+      await db.logQuery({
+        query,
+        retrieved_chunks: [],
+        answer: offTopicMessage,
+        latency_ms: Date.now() - startTime
+      });
+
+      return NextResponse.json({
+        answer: offTopicMessage,
+        citations: [],
+        metadata: {
+          intent: intentResult.classification.intent,
+          confidence: intentResult.classification.confidence,
+          off_topic: true,
+          latency_ms: Date.now() - startTime
+        }
+      });
+    }
+
+    // ============================================
+    // STEP 1: Q&A KNOWLEDGE MATCHING
+    // ============================================
+    console.log('🔍 Checking Q&A knowledge base...');
+    const qaMatch = await matchQAKnowledge(query, false); // TODO: Add hasImage detection from request
+
+    if (qaMatch && qaMatch.confidence >= 0.7) {
+      console.log(`✅ Q&A match found: ${qaMatch.question} (confidence: ${qaMatch.confidence})`);
+
+      // Log the match
+      await logQAMatch(query, qaMatch.id, true);
+
+      // Log to database
+      const db = getDB();
+      await db.init();
+      await db.logQuery({
+        query,
+        retrieved_chunks: [],
+        answer: qaMatch.answer,
+        latency_ms: Date.now() - startTime
+      });
+
+      return NextResponse.json({
+        answer: qaMatch.answer,
+        citations: [],
+        metadata: {
+          source: 'qa_knowledge',
+          qa_id: qaMatch.id,
+          qa_category: qaMatch.category,
+          qa_question: qaMatch.question,
+          confidence: qaMatch.confidence,
+          latency_ms: Date.now() - startTime
+        }
+      });
+    }
+
+    console.log('📚 No Q&A match found, proceeding with RAG...');
+
     // Low confidence or general question → proceed with RAG
     console.log(`📚 Proceeding with RAG (intent: ${intentResult.classification.intent}, confidence: ${intentResult.classification.confidence})`);
 
-    // Step 1: Embed query (with caching)
+    // Step 2: Embed query (with caching)
     const queryCacheKey = query.trim().toLowerCase();
     let queryEmbedding: number[];
 
@@ -139,13 +214,13 @@ export async function POST(request: NextRequest) {
       embeddingCache.set(queryCacheKey, queryEmbedding);
     }
 
-    // Step 2: Vector search
+    // Step 3: Vector search
     console.log('🔎 Searching vector database...');
     const db = getDB();
     await db.init();
     const searchResults = await db.query(queryEmbedding, k);
 
-    // Step 3: Generate answer with LLM
+    // Step 4: Generate answer with LLM
     console.log('🤖 Generating answer with Gemini...');
     const llm = getGeminiLLM();
 
@@ -202,7 +277,7 @@ IMPORTANT: This question doesn't have relevant information in the uploaded docum
 
     console.log(`✅ Found ${searchResults.length} relevant chunks`);
 
-    // Step 4: Generate RAG answer with context and conversation history
+    // Step 5: Generate RAG answer with context and conversation history
     if (stream) {
       // Streaming response
       return handleStreamingResponse(query, searchResults, conversationHistory, llm, db, startTime);

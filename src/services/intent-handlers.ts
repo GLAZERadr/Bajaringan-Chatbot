@@ -332,15 +332,37 @@ Lagi butuh dokumen K3 buat tender atau audit? Aku bisa hubungin tim QHSE kita bu
    * Handle contact/handoff request
    */
   private async handlePermintaanKontak(slots: any): Promise<HandlerResponse> {
+    // Fetch contact settings from database
+    let waCS = '6281234567890';
+    let waSales = '6289876543210';
+    let emailCS = 'cs@bajaringan.com';
+    let operatingHours = 'Senin-Jumat, 08:00-17:00';
+
+    try {
+      const response = await fetch('http://localhost:3000/api/admin/contacts');
+      const data = await response.json();
+
+      if (data.success && data.contacts) {
+        const contacts = data.contacts;
+        waCS = contacts.find((c: any) => c.setting_key === 'wa_cs')?.setting_value || waCS;
+        waSales = contacts.find((c: any) => c.setting_key === 'wa_sales')?.setting_value || waSales;
+        emailCS = contacts.find((c: any) => c.setting_key === 'email_cs')?.setting_value || emailCS;
+        operatingHours = contacts.find((c: any) => c.setting_key === 'operating_hours')?.setting_value || operatingHours;
+      }
+    } catch (error) {
+      console.error('❌ Error fetching contact settings:', error);
+      // Use default values if fetch fails
+    }
+
     const message = `Siap! Ini kontak kita ya:
 
 📞 Customer Service:
-- Telp/WA: 0812-3456-7890
-- Email: cs@bajaringan.com
-- Jam buka: Senin-Jumat, 08:00-17:00
+Klik buat chat langsung: https://wa.me/${waCS}
+Email: ${emailCS}
+Jam buka: ${operatingHours}
 
 📲 Sales (buat penawaran):
-- Telp/WA: 0812-9876-5432
+Klik buat chat langsung: https://wa.me/${waSales}
 
 ${slots.kontak_pengguna ? `\nOke, aku udah catat kontak kamu: ${slots.kontak_pengguna}\nTim kita bakal segera hubungi ya!` : '\nAtau kalo mau, kasih nomor WA kamu aja, nanti aku minta tim yang hubungi balik deh.'}`;
 

@@ -359,6 +359,19 @@ export class NeonDB {
   }
 
   /**
+   * Execute a raw SQL query
+   */
+  async executeQuery(queryText: string, params?: any[]): Promise<any> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(queryText, params);
+      return result;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Close database connection pool
    */
   async close(): Promise<void> {

@@ -104,8 +104,8 @@ export default function ChatPage() {
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b px-6 py-4">
-        <h1 className="text-2xl font-bold text-gray-900">Bajaringan Chatbot</h1>
-        <p className="text-sm text-gray-600">Ask questions about your knowledge base</p>
+        <h1 className="text-2xl font-bold text-gray-900">Chatbot Bajaringan</h1>
+        <p className="text-sm text-gray-600">Tanyakan apapun tentang atap dan baja ringan</p>
       </div>
 
       {/* Messages Container */}
@@ -129,10 +129,10 @@ export default function ChatPage() {
                 </svg>
               </div>
               <h2 className="text-xl font-semibold text-gray-700 mb-2">
-                Start a conversation
+                Mulai Percakapan
               </h2>
               <p className="text-gray-500">
-                Ask me anything about the documents in the knowledge base
+                Tanyakan apapun tentang dokumen di knowledge base
               </p>
             </div>
           )}
@@ -203,7 +203,7 @@ export default function ChatPage() {
                           d="M9 5l7 7-7 7"
                         />
                       </svg>
-                      {message.citations.length} Source{message.citations.length > 1 ? 's' : ''}
+                      {message.citations.length} Sumber
                     </button>
 
                     {expandedCitations === index && (
@@ -215,7 +215,7 @@ export default function ChatPage() {
                           >
                             <div className="font-semibold text-gray-900 mb-1">
                               {citation.document_name}
-                              {citation.page && ` (Page ${citation.page})`}
+                              {citation.page && ` (Halaman ${citation.page})`}
                             </div>
                             <div className="text-gray-600 line-clamp-2">
                               {citation.content}
@@ -254,7 +254,7 @@ export default function ChatPage() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question..."
+              placeholder="Tanyakan sesuatu..."
               className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
             />
@@ -263,12 +263,12 @@ export default function ChatPage() {
               disabled={!input.trim() || loading}
               className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
             >
-              {loading ? 'Sending...' : 'Send'}
+              {loading ? 'Mengirim...' : 'Kirim'}
             </button>
           </div>
 
           <p className="text-xs text-gray-500 mt-2 text-center">
-            Ask questions based on your uploaded documents
+            Tanyakan pertanyaan berdasarkan dokumen yang sudah diupload
           </p>
         </form>
       </div>
