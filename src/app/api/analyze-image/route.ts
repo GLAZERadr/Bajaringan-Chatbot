@@ -22,11 +22,23 @@ export async function POST(request: NextRequest) {
                   'Apa yang Anda lihat di gambar ini? Ada masalah apa?';
     const k = parseInt(formData.get('k') as string || '5');
 
+    // If no images provided, redirect to regular text query API
     if (files.length === 0) {
-      return NextResponse.json(
-        { error: 'Minimal satu gambar harus diupload' },
-        { status: 400 }
-      );
+      console.log('⚠️  No images provided, routing to regular text query...');
+
+      // Call the regular query API
+      const queryResponse = await fetch('http://localhost:3000/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query,
+          k,
+          stream: false
+        })
+      });
+
+      const data = await queryResponse.json();
+      return NextResponse.json(data, { status: queryResponse.status });
     }
 
     // Validate image types

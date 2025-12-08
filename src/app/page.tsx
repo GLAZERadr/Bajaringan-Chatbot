@@ -462,7 +462,7 @@ export default function Home() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, forceTextOnly = false) => {
     e.preventDefault();
 
     if ((!input.trim() && selectedImages.length === 0) || loading) return;
@@ -485,9 +485,11 @@ export default function Home() {
       localStorage.setItem('currentChatId', newChatId);
     }
 
-    // Convert images to base64
+    // Convert images to base64 (only if not forcing text-only)
     const imageDataUrls: string[] = [];
-    for (const image of selectedImages) {
+    const imagesToSend = forceTextOnly ? [] : selectedImages;
+
+    for (const image of imagesToSend) {
       const dataUrl = await new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result as string);
@@ -498,7 +500,7 @@ export default function Home() {
 
     const userMessage: Message = {
       role: 'user',
-      content: input || (selectedImages.length > 0 ? `🖼️ [${selectedImages.length} gambar]` : ''),
+      content: input || (imagesToSend.length > 0 ? `🖼️ [${imagesToSend.length} gambar]` : ''),
       timestamp: Date.now(),
       images: imageDataUrls.length > 0 ? imageDataUrls : undefined
     };
@@ -510,11 +512,11 @@ export default function Home() {
     try {
       let response;
 
-      // Check if we have images
-      if (selectedImages.length > 0) {
+      // Check if we have images AND user wants to send them (not forcing text-only)
+      if (imagesToSend.length > 0 && !forceTextOnly) {
         // Use multimodal API
         const formData = new FormData();
-        selectedImages.forEach(img => formData.append('images', img));
+        imagesToSend.forEach(img => formData.append('images', img));
         formData.append('query', input || 'Apa yang Anda lihat di gambar ini? Ada masalah apa?');
         formData.append('k', '3'); // Reduced for faster response
 
@@ -1284,6 +1286,21 @@ export default function Home() {
                   className="flex-1 px-3 md:px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm md:text-base"
                   disabled={loading}
                 />
+                {/* Show "Text Only" button when images are selected and there's text input */}
+                {selectedImages.length > 0 && input.trim() && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleSubmit(e, true)}
+                    disabled={loading}
+                    className="bg-gray-600 text-white px-3 sm:px-4 py-3 rounded-lg hover:bg-gray-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium text-xs md:text-sm active:scale-95 flex-shrink-0"
+                    title="Kirim teks saja tanpa gambar"
+                  >
+                    <span className="hidden sm:inline">Teks Saja</span>
+                    <svg className="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   type="submit"
                   disabled={(!input.trim() && selectedImages.length === 0) || loading}
@@ -1296,7 +1313,7 @@ export default function Home() {
                     </>
                   ) : (
                     <>
-                      <span className="hidden sm:inline">Kirim</span>
+                      <span className="hidden sm:inline">{selectedImages.length > 0 ? 'Kirim + Gambar' : 'Kirim'}</span>
                       <svg className="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                       </svg>

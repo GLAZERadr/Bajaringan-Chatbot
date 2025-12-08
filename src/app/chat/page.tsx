@@ -9,6 +9,7 @@ interface Message {
   content: string;
   citations?: Citation[];
   timestamp: number;
+  images?: string[]; // base64 encoded images
 }
 
 interface Citation {
@@ -24,7 +25,10 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [expandedCitations, setExpandedCitations] = useState<number | null>(null);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -34,29 +38,110 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setSelectedImages((prev) => [...prev, event.target!.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeImage = (index: number) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (!files) return;
+
+    Array.from(files).forEach((file) => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            setSelectedImages((prev) => [...prev, event.target!.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!input.trim() || loading) return;
+    if ((!input.trim() && selectedImages.length === 0) || loading) return;
 
     const userMessage: Message = {
       role: 'user',
-      content: input,
-      timestamp: Date.now()
+      content: input || 'Apa yang kamu lihat di gambar ini?',
+      timestamp: Date.now(),
+      images: selectedImages.length > 0 ? selectedImages : undefined
     };
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
+    const imagesToSend = [...selectedImages];
+    setSelectedImages([]);
     setLoading(true);
 
     try {
-      const response = await fetch('/api/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: input, k: 5 }),
-      });
+      let response;
+      let data;
 
-      const data = await response.json();
+      if (imagesToSend.length > 0) {
+        // Use analyze-image API for multimodal requests
+        const formData = new FormData();
+        formData.append('query', input || 'Apa yang kamu lihat di gambar ini?');
+
+        imagesToSend.forEach((imageBase64) => {
+          const base64Data = imageBase64.split(',')[1];
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: 'image/jpeg' });
+          formData.append('images', blob, 'image.jpg');
+        });
+
+        response = await fetch('/api/analyze-image', {
+          method: 'POST',
+          body: formData,
+        });
+
+        data = await response.json();
+      } else {
+        // Use regular query API for text-only
+        response = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: input, k: 5 }),
+        });
+
+        data = await response.json();
+      }
 
       if (response.ok) {
         const assistantMessage: Message = {
@@ -160,7 +245,21 @@ export default function ChatPage() {
 
                 <div className={`prose prose-sm max-w-none ${message.role === 'user' ? 'prose-invert' : ''}`}>
                   {message.role === 'user' ? (
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    <>
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      {message.images && message.images.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          {message.images.map((img, idx) => (
+                            <img
+                              key={idx}
+                              src={img}
+                              alt={`Uploaded ${idx + 1}`}
+                              className="w-full h-auto rounded border border-white/20"
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
@@ -249,18 +348,67 @@ export default function ChatPage() {
       {/* Input Form */}
       <div className="bg-white border-t px-4 py-4">
         <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
-          <div className="flex space-x-4">
+          {/* Image Preview */}
+          {selectedImages.length > 0 && (
+            <div className="mb-3 grid grid-cols-4 gap-2">
+              {selectedImages.map((img, index) => (
+                <div key={index} className="relative group">
+                  <img
+                    src={img}
+                    alt={`Preview ${index + 1}`}
+                    className="w-full h-20 object-cover rounded border border-gray-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(index)}
+                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div
+            className={`flex space-x-2 ${isDragging ? 'opacity-50' : ''}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp"
+              multiple
+              onChange={handleImageSelect}
+              className="hidden"
+            />
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="bg-gray-100 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-200 transition border border-gray-300"
+              disabled={loading}
+              title="Upload foto atap"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </button>
+
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Tanyakan sesuatu..."
+              placeholder={selectedImages.length > 0 ? "Tanyakan tentang gambar..." : "Tanyakan sesuatu..."}
               className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
             />
+
             <button
               type="submit"
-              disabled={!input.trim() || loading}
+              disabled={(!input.trim() && selectedImages.length === 0) || loading}
               className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
             >
               {loading ? 'Mengirim...' : 'Kirim'}
@@ -268,7 +416,9 @@ export default function ChatPage() {
           </div>
 
           <p className="text-xs text-gray-500 mt-2 text-center">
-            Tanyakan pertanyaan berdasarkan dokumen yang sudah diupload
+            {selectedImages.length > 0
+              ? `${selectedImages.length} gambar dipilih • Tanyakan tentang foto atap Anda`
+              : 'Tanyakan pertanyaan atau upload foto atap untuk analisis'}
           </p>
         </form>
       </div>
