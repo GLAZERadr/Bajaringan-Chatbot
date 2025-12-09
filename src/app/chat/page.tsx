@@ -280,51 +280,7 @@ export default function ChatPage() {
                   )}
                 </div>
 
-                {/* Citations */}
-                {message.role === 'assistant' && message.citations && message.citations.length > 0 && (
-                  <div className="mt-4 border-t border-gray-200 pt-3">
-                    <button
-                      onClick={() => toggleCitations(index)}
-                      className="flex items-center text-xs font-semibold text-gray-700 hover:text-gray-900"
-                    >
-                      <svg
-                        className={`w-4 h-4 mr-1 transition-transform ${
-                          expandedCitations === index ? 'rotate-90' : ''
-                        }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 5l7 7-7 7"
-                        />
-                      </svg>
-                      {message.citations.length} Sumber
-                    </button>
-
-                    {expandedCitations === index && (
-                      <div className="mt-3 space-y-2">
-                        {message.citations.map((citation, citIndex) => (
-                          <div
-                            key={citIndex}
-                            className="bg-gray-50 rounded p-3 text-xs border border-gray-200"
-                          >
-                            <div className="font-semibold text-gray-900 mb-1">
-                              {citation.document_name}
-                              {citation.page && ` (Halaman ${citation.page})`}
-                            </div>
-                            <div className="text-gray-600 line-clamp-2">
-                              {citation.content}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Citations - Hidden for widget */}
               </div>
             </div>
           ))}
