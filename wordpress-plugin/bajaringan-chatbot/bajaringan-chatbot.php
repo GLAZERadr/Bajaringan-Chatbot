@@ -3,7 +3,7 @@
  * Plugin Name: BARI Chatbot Widget
  * Plugin URI: https://bajaringan.com
  * Description: Floating chatbot widget dengan animated GIF icon dan auto-show bubble notification
- * Version: 2.1.0
+ * Version: 2.2.6
  * Author: Bajaringan Team
  * Author URI: https://bajaringan.com
  * License: GPL v2 or later
@@ -19,7 +19,7 @@ class Bajaringan_Chatbot_Widget {
     /**
      * Plugin version
      */
-    const VERSION = '2.1.0';
+    const VERSION = '2.2.7';
 
     /**
      * Constructor

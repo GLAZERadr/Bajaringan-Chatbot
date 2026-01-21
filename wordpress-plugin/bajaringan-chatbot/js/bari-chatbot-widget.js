@@ -1,7 +1,23 @@
 /**
  * BARI Chatbot Widget
  * Floating Action Button with Auto-show Bubble
- * Version: 2.1.0
+ * Version: 2.2.6
+ *
+ * Changelog v2.2.6:
+ * - Close button ONLY shows X icon (no background circle)
+ * - Gray icon color (#6b7280) for subtle but visible appearance
+ * - Icon size 16px for good visibility
+ * - Scale animation on hover (1.2x) and click (0.9x)
+ *
+ * Changelog v2.2.1:
+ * - Improved bubble close button visibility
+ * - Enhanced hover and active states for better UX
+ *
+ * Changelog v2.2.0:
+ * - Modal position moved to bottom (30px from bottom)
+ * - FAB button hides when modal opens
+ * - FAB button reappears when modal closes
+ * - Smooth fade + scale animations
  */
 
 (function() {
@@ -45,14 +61,23 @@
       outline: none !important;
       padding: 0 !important;
       overflow: visible !important;
+      opacity: 1 !important;
+      transform: scale(1) !important;
+      pointer-events: auto !important;
     }
 
-    .bari-fab:hover {
+    .bari-fab.hidden {
+      opacity: 0 !important;
+      transform: scale(0.8) !important;
+      pointer-events: none !important;
+    }
+
+    .bari-fab:not(.hidden):hover {
       transform: scale(1.1) !important;
       filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2)) !important;
     }
 
-    .bari-fab:active {
+    .bari-fab:not(.hidden):active {
       transform: scale(0.95) !important;
     }
 
@@ -84,7 +109,7 @@
     /* Speech Bubble */
     .bari-bubble {
       position: fixed;
-      bottom: 235px;
+      bottom: 230px;
       right: 30px;
       background: white;
       padding: 14px 18px 14px 16px;
@@ -134,26 +159,28 @@
       right: 8px;
       background: transparent;
       border: none;
-      color: #9ca3af;
       cursor: pointer;
-      padding: 4px;
+      padding: 2px;
       display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 50%;
-      width: 24px;
-      height: 24px;
-      transition: all 0.2s;
+      width: 18px;
+      height: 18px;
+      transition: all 0.2s ease;
     }
 
     .bari-bubble-close:hover {
-      background: #f3f4f6;
-      color: #374151;
+      transform: scale(1.2);
+    }
+
+    .bari-bubble-close:active {
+      transform: scale(0.9);
     }
 
     .bari-bubble-close svg {
-      width: 14px;
-      height: 14px;
+      width: 16px;
+      height: 16px;
+      fill: #ffffff;
     }
 
     /* Modal Overlay */
@@ -179,12 +206,12 @@
     /* Modal Container */
     .bari-modal {
       position: fixed;
-      bottom: 235px;
+      bottom: 30px;
       right: 30px;
       width: 420px;
       max-width: calc(100vw - 60px);
       height: 640px;
-      max-height: calc(100vh - 255px);
+      max-height: calc(100vh - 60px);
       background: white;
       border-radius: 20px;
       box-shadow: 0 12px 48px rgba(0, 0, 0, 0.2);
@@ -610,6 +637,9 @@
       this.overlay.classList.add('active');
       // Removed: document.body.style.overflow = 'hidden' to allow page scrolling
 
+      // Hide FAB button
+      this.fab.classList.add('hidden');
+
       // Hide bubble
       this.hideBubble();
 
@@ -633,6 +663,9 @@
       this.modal.classList.remove('active');
       this.overlay.classList.remove('active');
       // Removed: document.body.style.overflow = '' (no longer needed)
+
+      // Show FAB button again
+      this.fab.classList.remove('hidden');
 
       // Reset bubble shown flag
       this.bubbleShown = false;

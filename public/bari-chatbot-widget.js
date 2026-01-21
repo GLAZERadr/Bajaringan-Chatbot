@@ -1,7 +1,7 @@
 /**
  * BARI Chatbot Widget
  * Floating Action Button with Auto-show Bubble
- * Version: 2.1.0
+ * Version: 2.1.1
  */
 
 (function() {
@@ -123,7 +123,7 @@
       padding-right: 24px;
       font-size: 14px;
       line-height: 1.5;
-      color: #1f2937;
+      color: #fffff;
       font-weight: 500;
     }
 
